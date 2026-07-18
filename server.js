@@ -22,7 +22,6 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
 
-        // Convert Anthropic format to OpenAI format
         const messages = [];
         if (payload.system) {
           messages.push({ role: 'system', content: payload.system });
@@ -52,25 +51,27 @@ const server = http.createServer((req, res) => {
           let responseData = '';
           apiRes.on('data', chunk => responseData += chunk);
           apiRes.on('end', () => {
+            console.log('OpenAI status:', apiRes.statusCode);
+            console.log('OpenAI response:', responseData.substring(0, 300));
             try {
               const openaiResponse = JSON.parse(responseData);
-              // Convert OpenAI response to Anthropic format
+              const text = openaiResponse.choices?.[0]?.message?.content;
+              console.log('Extracted text:', text);
               const anthropicFormat = {
-                content: [{
-                  type: 'text',
-                  text: openaiResponse.choices?.[0]?.message?.content || '...'
-                }]
+                content: [{ type: 'text', text: text || 'Sin respuesta' }]
               };
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify(anthropicFormat));
             } catch(e) {
+              console.log('Parse error:', e.message);
               res.writeHead(500, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Parse error' }));
+              res.end(JSON.stringify({ error: 'Parse error: ' + e.message }));
             }
           });
         });
 
         apiReq.on('error', err => {
+          console.log('Request error:', err.message);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));
         });
