@@ -1,7 +1,7 @@
 const https = require('https');
 const http = require('http');
 
-const API_KEY = process.env.ANTHROPIC_API_KEY;
+const API_KEY = process.env.OPENAI_API_KEY;
 const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
@@ -21,37 +21,63 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        const data = JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: payload.max_tokens || 400,
-          system: payload.system || '',
-          messages: payload.messages || []
+
+        // Convert Anthropic format to OpenAI format
+        const messages = [];
+        if (payload.system) {
+          messages.push({ role: 'system', content: payload.system });
+        }
+        (payload.messages || []).forEach(m => {
+          messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content });
         });
+
+        const data = JSON.stringify({
+          model: 'gpt-4o-mini',
+          max_tokens: payload.max_tokens || 400,
+          messages: messages
+        });
+
         const options = {
-          hostname: 'api.anthropic.com',
-          path: '/v1/messages',
+          hostname: 'api.openai.com',
+          path: '/v1/chat/completions',
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': API_KEY,
-            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${API_KEY}`,
             'Content-Length': Buffer.byteLength(data)
           }
         };
+
         const apiReq = https.request(options, apiRes => {
           let responseData = '';
           apiRes.on('data', chunk => responseData += chunk);
           apiRes.on('end', () => {
-            res.writeHead(apiRes.statusCode, { 'Content-Type': 'application/json' });
-            res.end(responseData);
+            try {
+              const openaiResponse = JSON.parse(responseData);
+              // Convert OpenAI response to Anthropic format
+              const anthropicFormat = {
+                content: [{
+                  type: 'text',
+                  text: openaiResponse.choices?.[0]?.message?.content || '...'
+                }]
+              };
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(anthropicFormat));
+            } catch(e) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Parse error' }));
+            }
           });
         });
+
         apiReq.on('error', err => {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));
         });
+
         apiReq.write(data);
         apiReq.end();
+
       } catch(e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
@@ -66,4 +92,4 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Proxy FAW corriendo en puerto ${PORT}`));
+server.listen(PORT, () => console.log(`Proxy FAW (OpenAI) corriendo en puerto ${PORT}`));
